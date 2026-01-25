@@ -412,26 +412,30 @@ if file_to_use is not None:
             label_visibility="collapsed"
         )
         
-        # Download button
-        st.sidebar.markdown("---")
-        st.sidebar.markdown("### 📥 Download Report")
-        if st.sidebar.button("💾 Generate Offline HTML Report", use_container_width=True):
-            with st.spinner("🔄 Generating report..."):
-                html_content = generate_html_report(data)
-                st.sidebar.download_button(
-                    label="📥 Download HTML File",
-                    data=html_content,
-                    file_name=f"Production_Analytics_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html",
-                    mime="text/html",
-                    use_container_width=True
-                )
-                st.sidebar.success("✅ Report ready! Click above to download.")
-        st.sidebar.markdown("<small>💡 The HTML report works offline with interactive filters!</small>", unsafe_allow_html=True)
-        
     except Exception as e:
         st.error(f"❌ Error loading file: {str(e)}")
         st.error("The saved file may be corrupted. Please upload a new file or clear the saved file.")
         data = None
+
+# ========================================
+# DOWNLOAD BUTTON (Sidebar)
+# ========================================
+
+if data is not None:
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 📥 Download Report")
+    if st.sidebar.button("💾 Generate Offline HTML Report", use_container_width=True):
+        with st.spinner("🔄 Generating report..."):
+            html_content = generate_html_report(data)
+            st.sidebar.download_button(
+                label="📥 Download HTML File",
+                data=html_content,
+                file_name=f"Production_Analytics_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html",
+                mime="text/html",
+                use_container_width=True
+            )
+            st.sidebar.success("✅ Report ready! Click above to download.")
+    st.sidebar.markdown("<small>💡 The HTML report works offline with interactive filters!</small>", unsafe_allow_html=True)
 
 # ========================================
 # MAIN ANALYTICS CONTENT
