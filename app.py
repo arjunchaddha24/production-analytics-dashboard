@@ -371,30 +371,50 @@ if data is not None and analytics_option is not None:
     # ========================================
     elif analytics_option == "📈 Cumulative Planned vs Actual":
         st.markdown('<div class="main-header">📈 Cumulative Planned vs Actual Production</div>', unsafe_allow_html=True)
-        st.markdown('<div class="sub-header">Compare cumulative planned and actual production over time (Style level)</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sub-header">Compare cumulative planned and actual production over time (Style/PO/Colour level)</div>', unsafe_allow_html=True)
         st.markdown("---")
         
         # Filters
         st.markdown("### Filters")
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3, col4, col5 = st.columns(5)
         
         with col1:
             selected_style = st.selectbox(
                 "Select Style",
-                options=sorted(data['Style'].unique())
+                options=sorted(data['Style'].unique()),
+                key="cumulative_style"
             )
         
+        # Get POs and Colours for selected style
+        style_data = data[data['Style'] == selected_style]
+        
         with col2:
+            selected_pos_cumulative = st.multiselect(
+                "PO",
+                options=sorted(style_data['PO'].unique()),
+                default=sorted(style_data['PO'].unique()),
+                key="cumulative_po"
+            )
+        
+        with col3:
+            selected_colours_cumulative = st.multiselect(
+                "Colour",
+                options=sorted(style_data['Colour'].unique()),
+                default=sorted(style_data['Colour'].unique()),
+                key="cumulative_colour"
+            )
+        
+        with col4:
             date_range = st.date_input(
                 "Date Range",
                 value=(data['Date'].min(), data['Date'].max()),
                 key="cumulative_date"
             )
         
-        with col3:
+        with col5:
             view_mode = st.radio(
                 "View Mode",
-                options=["Daily", "Monthly"],
+                options=["Daily", "Weekly", "Monthly"],
                 horizontal=True
             )
         
@@ -403,6 +423,8 @@ if data is not None and analytics_option is not None:
         # Filter data
         filtered_data = data[
             (data['Style'] == selected_style) &
+            (data['PO'].isin(selected_pos_cumulative)) &
+            (data['Colour'].isin(selected_colours_cumulative)) &
             (data['Date'] >= pd.to_datetime(date_range[0])) &
             (data['Date'] <= pd.to_datetime(date_range[1]))
         ]
@@ -464,12 +486,71 @@ if data is not None and analytics_option is not None:
                     
                     st.plotly_chart(fig, use_container_width=True)
             
+            elif view_mode == "Weekly":
+                # Add week column
+                filtered_data_copy = filtered_data.copy()
+                filtered_data_copy['Week'] = filtered_data_copy['Date'].dt.to_period('W')
+                
+                # Group by week and get max cumulative values
+                weekly_data = filtered_data_copy.groupby('Week').agg({
+                    'Cumulative Planned Cutting': 'max',
+                    'Cumulative Actual Cutting': 'max',
+                    'Cumulative Planned Sewing': 'max',
+                    'Cumulative Actual Sewing': 'max',
+                    'Cumulative Planned Washing': 'max',
+                    'Cumulative Actual Washing': 'max',
+                    'Cumulative Planned Finishing': 'max',
+                    'Cumulative Actual Finishing': 'max',
+                    'Cumulative Planned Packing': 'max',
+                    'Cumulative Actual Packing': 'max'
+                }).reset_index()
+                
+                # Convert period to string for display
+                weekly_data['Week'] = weekly_data['Week'].astype(str)
+                
+                # Create bar charts for each process
+                for process in processes:
+                    fig = go.Figure()
+                    
+                    fig.add_trace(go.Bar(
+                        x=weekly_data['Week'],
+                        y=weekly_data[f'Cumulative Planned {process}'],
+                        name='Planned',
+                        marker_color='#FF6B6B'
+                    ))
+                    
+                    fig.add_trace(go.Bar(
+                        x=weekly_data['Week'],
+                        y=weekly_data[f'Cumulative Actual {process}'],
+                        name='Actual',
+                        marker_color='#4ECDC4'
+                    ))
+                    
+                    fig.update_layout(
+                        title=f"{process} - Cumulative Planned vs Actual (Weekly)",
+                        xaxis_title="Week",
+                        yaxis_title="Cumulative Quantity",
+                        height=450,
+                        barmode='group',
+                        hovermode='x unified',
+                        legend=dict(
+                            orientation="h",
+                            yanchor="bottom",
+                            y=1.02,
+                            xanchor="right",
+                            x=1
+                        )
+                    )
+                    
+                    st.plotly_chart(fig, use_container_width=True)
+            
             else:  # Monthly view
                 # Add month column
-                filtered_data['Month'] = filtered_data['Date'].dt.to_period('M')
+                filtered_data_copy = filtered_data.copy()
+                filtered_data_copy['Month'] = filtered_data_copy['Date'].dt.to_period('M')
                 
                 # Group by month and get max cumulative values
-                monthly_data = filtered_data.groupby('Month').agg({
+                monthly_data = filtered_data_copy.groupby('Month').agg({
                     'Cumulative Planned Cutting': 'max',
                     'Cumulative Actual Cutting': 'max',
                     'Cumulative Planned Sewing': 'max',
@@ -531,7 +612,7 @@ if data is not None and analytics_option is not None:
         
         # Filters
         st.markdown("### Filters")
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3, col4, col5 = st.columns(5)
         
         with col1:
             selected_styles = st.multiselect(
@@ -564,6 +645,14 @@ if data is not None and analytics_option is not None:
                 key="daily_date"
             )
         
+        with col5:
+            view_mode_daily = st.radio(
+                "View Mode",
+                options=["Daily", "Weekly", "Monthly"],
+                horizontal=True,
+                key="daily_view_mode"
+            )
+        
         st.markdown("---")
         
         # Filter data
@@ -578,58 +667,175 @@ if data is not None and analytics_option is not None:
         if len(filtered_data) == 0:
             st.warning("⚠️ No data matches the selected filters")
         else:
-            # Group by date and sum quantities
-            daily_comparison = filtered_data.groupby('Date').agg({
-                'Planned Cutting': 'sum',
-                'Actual Cutting': 'sum',
-                'Planned Sewing': 'sum',
-                'Actual Sewing': 'sum',
-                'Planned Washing': 'sum',
-                'Actual Washing': 'sum',
-                'Planned Finishing': 'sum',
-                'Actual Finishing': 'sum',
-                'Planned Packing': 'sum',
-                'Actual Packing': 'sum'
-            }).reset_index()
-            
-            # Create line charts for each process
-            for process in processes:
-                fig = go.Figure()
+            if view_mode_daily == "Daily":
+                # Group by date and sum quantities
+                daily_comparison = filtered_data.groupby('Date').agg({
+                    'Planned Cutting': 'sum',
+                    'Actual Cutting': 'sum',
+                    'Planned Sewing': 'sum',
+                    'Actual Sewing': 'sum',
+                    'Planned Washing': 'sum',
+                    'Actual Washing': 'sum',
+                    'Planned Finishing': 'sum',
+                    'Actual Finishing': 'sum',
+                    'Planned Packing': 'sum',
+                    'Actual Packing': 'sum'
+                }).reset_index()
                 
-                fig.add_trace(go.Scatter(
-                    x=daily_comparison['Date'],
-                    y=daily_comparison[f'Planned {process}'],
-                    mode='lines+markers',
-                    name='Planned',
-                    line=dict(dash='dash', width=2, color='#FF6B6B'),
-                    marker=dict(size=6)
-                ))
-                
-                fig.add_trace(go.Scatter(
-                    x=daily_comparison['Date'],
-                    y=daily_comparison[f'Actual {process}'],
-                    mode='lines+markers',
-                    name='Actual',
-                    line=dict(width=2, color='#4ECDC4'),
-                    marker=dict(size=6)
-                ))
-                
-                fig.update_layout(
-                    title=f"{process} - Daily Planned vs Actual",
-                    xaxis_title="Date",
-                    yaxis_title="Quantity",
-                    height=450,
-                    hovermode='x unified',
-                    legend=dict(
-                        orientation="h",
-                        yanchor="bottom",
-                        y=1.02,
-                        xanchor="right",
-                        x=1
+                # Create line charts for each process
+                for process in processes:
+                    fig = go.Figure()
+                    
+                    fig.add_trace(go.Scatter(
+                        x=daily_comparison['Date'],
+                        y=daily_comparison[f'Planned {process}'],
+                        mode='lines+markers',
+                        name='Planned',
+                        line=dict(dash='dash', width=2, color='#FF6B6B'),
+                        marker=dict(size=6)
+                    ))
+                    
+                    fig.add_trace(go.Scatter(
+                        x=daily_comparison['Date'],
+                        y=daily_comparison[f'Actual {process}'],
+                        mode='lines+markers',
+                        name='Actual',
+                        line=dict(width=2, color='#4ECDC4'),
+                        marker=dict(size=6)
+                    ))
+                    
+                    fig.update_layout(
+                        title=f"{process} - Daily Planned vs Actual",
+                        xaxis_title="Date",
+                        yaxis_title="Quantity",
+                        height=450,
+                        hovermode='x unified',
+                        legend=dict(
+                            orientation="h",
+                            yanchor="bottom",
+                            y=1.02,
+                            xanchor="right",
+                            x=1
+                        )
                     )
-                )
+                    
+                    st.plotly_chart(fig, use_container_width=True)
+            
+            elif view_mode_daily == "Weekly":
+                # Add week column
+                filtered_data_copy = filtered_data.copy()
+                filtered_data_copy['Week'] = filtered_data_copy['Date'].dt.to_period('W')
                 
-                st.plotly_chart(fig, use_container_width=True)
+                # Group by week and sum quantities
+                weekly_comparison = filtered_data_copy.groupby('Week').agg({
+                    'Planned Cutting': 'sum',
+                    'Actual Cutting': 'sum',
+                    'Planned Sewing': 'sum',
+                    'Actual Sewing': 'sum',
+                    'Planned Washing': 'sum',
+                    'Actual Washing': 'sum',
+                    'Planned Finishing': 'sum',
+                    'Actual Finishing': 'sum',
+                    'Planned Packing': 'sum',
+                    'Actual Packing': 'sum'
+                }).reset_index()
+                
+                # Convert period to string for display
+                weekly_comparison['Week'] = weekly_comparison['Week'].astype(str)
+                
+                # Create grouped bar charts for each process
+                for process in processes:
+                    fig = go.Figure()
+                    
+                    fig.add_trace(go.Bar(
+                        x=weekly_comparison['Week'],
+                        y=weekly_comparison[f'Planned {process}'],
+                        name='Planned',
+                        marker_color='#FF6B6B'
+                    ))
+                    
+                    fig.add_trace(go.Bar(
+                        x=weekly_comparison['Week'],
+                        y=weekly_comparison[f'Actual {process}'],
+                        name='Actual',
+                        marker_color='#4ECDC4'
+                    ))
+                    
+                    fig.update_layout(
+                        title=f"{process} - Weekly Planned vs Actual",
+                        xaxis_title="Week",
+                        yaxis_title="Quantity",
+                        height=450,
+                        barmode='group',
+                        hovermode='x unified',
+                        legend=dict(
+                            orientation="h",
+                            yanchor="bottom",
+                            y=1.02,
+                            xanchor="right",
+                            x=1
+                        )
+                    )
+                    
+                    st.plotly_chart(fig, use_container_width=True)
+            
+            else:  # Monthly view
+                # Add month column
+                filtered_data_copy = filtered_data.copy()
+                filtered_data_copy['Month'] = filtered_data_copy['Date'].dt.to_period('M')
+                
+                # Group by month and sum quantities
+                monthly_comparison = filtered_data_copy.groupby('Month').agg({
+                    'Planned Cutting': 'sum',
+                    'Actual Cutting': 'sum',
+                    'Planned Sewing': 'sum',
+                    'Actual Sewing': 'sum',
+                    'Planned Washing': 'sum',
+                    'Actual Washing': 'sum',
+                    'Planned Finishing': 'sum',
+                    'Actual Finishing': 'sum',
+                    'Planned Packing': 'sum',
+                    'Actual Packing': 'sum'
+                }).reset_index()
+                
+                # Convert period to string for display
+                monthly_comparison['Month'] = monthly_comparison['Month'].astype(str)
+                
+                # Create grouped bar charts for each process
+                for process in processes:
+                    fig = go.Figure()
+                    
+                    fig.add_trace(go.Bar(
+                        x=monthly_comparison['Month'],
+                        y=monthly_comparison[f'Planned {process}'],
+                        name='Planned',
+                        marker_color='#FF6B6B'
+                    ))
+                    
+                    fig.add_trace(go.Bar(
+                        x=monthly_comparison['Month'],
+                        y=monthly_comparison[f'Actual {process}'],
+                        name='Actual',
+                        marker_color='#4ECDC4'
+                    ))
+                    
+                    fig.update_layout(
+                        title=f"{process} - Monthly Planned vs Actual",
+                        xaxis_title="Month",
+                        yaxis_title="Quantity",
+                        height=450,
+                        barmode='group',
+                        hovermode='x unified',
+                        legend=dict(
+                            orientation="h",
+                            yanchor="bottom",
+                            y=1.02,
+                            xanchor="right",
+                            x=1
+                        )
+                    )
+                    
+                    st.plotly_chart(fig, use_container_width=True)
     
     # ========================================
     # OPTION 4: Production Completion Percentage
