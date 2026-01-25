@@ -945,7 +945,9 @@ if data is not None and analytics_option is not None:
                 if len(selected_pos_completion) == 1 and len(selected_colours_completion) == 1:
                     st.markdown(f"**PO:** {selected_pos_completion[0]} | **Colour:** {selected_colours_completion[0]}")
                 else:
-                    st.markdown(f"**POs:** {', '.join(selected_pos_completion)} | **Colours:** {', '.join(selected_colours_completion)}")
+                    pos_list = ', '.join(selected_pos_completion)
+                    colour_list = ', '.join(selected_colours_completion)
+                    st.markdown(f"**POs:** {pos_list} | **Colours:** {colour_list}")
                 st.markdown(f"*As of {latest_date.strftime('%d %B %Y')}*")
                 st.markdown("")
                 
