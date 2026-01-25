@@ -96,6 +96,158 @@ def clear_saved_file():
         return False
 
 # ========================================
+# HTML REPORT GENERATION
+# ========================================
+
+def generate_html_report(data):
+    """
+    Generate a self-contained HTML report with embedded data and interactive filters.
+    
+    Args:
+        data: pandas DataFrame with production data
+    
+    Returns:
+        str: HTML content as a string
+    """
+    
+    # Convert data to JSON for embedding
+    data_json = data.to_json(orient='records', date_format='iso')
+    
+    html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Production Analytics Report</title>
+    <script src="https://cdn.plot.ly/plotly-2.26.0.min.js"></script>
+    <style>
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f5f5f5; padding: 20px; }}
+        #app {{ max-width: 1400px; margin: 0 auto; background-color: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
+        h1 {{ color: #1f77b4; text-align: center; margin-bottom: 10px; font-size: 2.5rem; }}
+        .subtitle {{ text-align: center; color: #666; margin-bottom: 30px; font-size: 1.1rem; }}
+        .filters-container {{ background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 30px; border: 1px solid #dee2e6; }}
+        .filter-row {{ display: flex; gap: 15px; margin-bottom: 15px; flex-wrap: wrap; align-items: center; }}
+        .filter-group {{ flex: 1; min-width: 200px; }}
+        .filter-label {{ display: block; font-weight: 600; margin-bottom: 5px; color: #333; font-size: 0.9rem; }}
+        select, input[type="date"] {{ width: 100%; padding: 10px; border: 1px solid #ced4da; border-radius: 5px; font-size: 14px; background-color: white; }}
+        select:focus, input[type="date"]:focus {{ outline: none; border-color: #1f77b4; box-shadow: 0 0 0 2px rgba(31, 119, 180, 0.1); }}
+        select[multiple] {{ height: 80px; }}
+        .chart-container {{ margin-bottom: 40px; background-color: #fafafa; padding: 20px; border-radius: 8px; border: 1px solid #e0e0e0; }}
+        .info-message {{ background-color: #e3f2fd; padding: 15px; border-radius: 5px; border-left: 4px solid #1f77b4; margin-bottom: 20px; }}
+        .warning-message {{ background-color: #fff3cd; padding: 15px; border-radius: 5px; border-left: 4px solid #ffc107; margin-bottom: 20px; }}
+        .button-group {{ display: flex; gap: 10px; margin-top: 15px; }}
+        button {{ padding: 10px 20px; border: none; border-radius: 5px; font-size: 14px; cursor: pointer; transition: background-color 0.2s; }}
+        button.primary {{ background-color: #1f77b4; color: white; }}
+        button.primary:hover {{ background-color: #155a8a; }}
+        button.secondary {{ background-color: #6c757d; color: white; }}
+        button.secondary:hover {{ background-color: #545b62; }}
+    </style>
+</head>
+<body>
+    <div id="app">
+        <h1>📊 Production Analytics Report</h1>
+        <div class="subtitle">Interactive Offline Analytics Dashboard</div>
+        <div class="info-message"><strong>ℹ️ How to use:</strong> Select filters below to view analytics. All data is embedded - no internet required!</div>
+        <div class="filters-container">
+            <div class="filter-row">
+                <div class="filter-group"><label class="filter-label">Style</label><select id="styleFilter"><option value="">Select Style...</option></select></div>
+                <div class="filter-group"><label class="filter-label">PO (Ctrl/Cmd for multiple)</label><select id="poFilter" multiple></select></div>
+                <div class="filter-group"><label class="filter-label">Colour (Ctrl/Cmd for multiple)</label><select id="colourFilter" multiple></select></div>
+            </div>
+            <div class="filter-row">
+                <div class="filter-group"><label class="filter-label">Start Date</label><input type="date" id="startDate"></div>
+                <div class="filter-group"><label class="filter-label">End Date</label><input type="date" id="endDate"></div>
+                <div class="filter-group"><label class="filter-label">View Mode</label><select id="viewMode"><option value="Daily">Daily</option><option value="Weekly">Weekly</option><option value="Monthly">Monthly</option></select></div>
+            </div>
+            <div class="button-group"><button class="primary" onclick="updateCharts()">🔄 Update Charts</button><button class="secondary" onclick="resetFilters()">↺ Reset Filters</button></div>
+        </div>
+        <div id="message"></div><div id="charts"></div>
+    </div>
+    <script>
+        const rawData = {data_json};
+        rawData.forEach(row => {{ row.Date = new Date(row.Date); }});
+        const processes = ['Cutting', 'Sewing', 'Washing', 'Finishing', 'Packing'];
+        
+        function populateFilters() {{
+            const styles = [...new Set(rawData.map(r => r['Style No']))].sort();
+            const styleFilter = document.getElementById('styleFilter');
+            styles.forEach(style => {{ const option = document.createElement('option'); option.value = style; option.textContent = style; styleFilter.appendChild(option); }});
+            if (styles.length > 0) {{ styleFilter.value = styles[0]; updatePOAndColourFilters(); }}
+            const dates = rawData.map(r => r.Date);
+            const minDate = new Date(Math.min(...dates)); const maxDate = new Date(Math.max(...dates));
+            document.getElementById('startDate').value = minDate.toISOString().split('T')[0];
+            document.getElementById('endDate').value = maxDate.toISOString().split('T')[0];
+        }}
+        
+        function updatePOAndColourFilters() {{
+            const selectedStyle = document.getElementById('styleFilter').value;
+            const styleData = rawData.filter(r => r['Style No'] === selectedStyle);
+            const pos = [...new Set(styleData.map(r => String(r.PO)))].sort();
+            const colours = [...new Set(styleData.map(r => String(r.Colour)))].sort();
+            const poFilter = document.getElementById('poFilter'); const colourFilter = document.getElementById('colourFilter');
+            poFilter.innerHTML = ''; colourFilter.innerHTML = '';
+            pos.forEach(po => {{ const option = document.createElement('option'); option.value = po; option.textContent = po; option.selected = true; poFilter.appendChild(option); }});
+            colours.forEach(colour => {{ const option = document.createElement('option'); option.value = colour; option.textContent = colour; option.selected = true; colourFilter.appendChild(option); }});
+        }}
+        
+        document.getElementById('styleFilter').addEventListener('change', () => {{ updatePOAndColourFilters(); updateCharts(); }});
+        
+        function resetFilters() {{
+            const styleFilter = document.getElementById('styleFilter');
+            if (styleFilter.options.length > 1) {{ styleFilter.selectedIndex = 1; }}
+            updatePOAndColourFilters();
+            const dates = rawData.map(r => r.Date); const minDate = new Date(Math.min(...dates)); const maxDate = new Date(Math.max(...dates));
+            document.getElementById('startDate').value = minDate.toISOString().split('T')[0];
+            document.getElementById('endDate').value = maxDate.toISOString().split('T')[0];
+            document.getElementById('viewMode').value = 'Daily'; updateCharts();
+        }}
+        
+        function updateCharts() {{
+            const selectedStyle = document.getElementById('styleFilter').value;
+            if (!selectedStyle) {{ document.getElementById('message').innerHTML = '<div class="warning-message">⚠️ Please select a style.</div>'; document.getElementById('charts').innerHTML = ''; return; }}
+            const selectedPOs = Array.from(document.getElementById('poFilter').selectedOptions).map(o => o.value);
+            const selectedColours = Array.from(document.getElementById('colourFilter').selectedOptions).map(o => o.value);
+            const startDate = new Date(document.getElementById('startDate').value); const endDate = new Date(document.getElementById('endDate').value);
+            const viewMode = document.getElementById('viewMode').value;
+            if (selectedPOs.length === 0 || selectedColours.length === 0) {{ document.getElementById('message').innerHTML = '<div class="warning-message">⚠️ Select at least one PO and Colour.</div>'; document.getElementById('charts').innerHTML = ''; return; }}
+            document.getElementById('message').innerHTML = '';
+            const filteredData = rawData.filter(row => {{ return row['Style No'] === selectedStyle && selectedPOs.includes(String(row.PO)) && selectedColours.includes(String(row.Colour)) && row.Date >= startDate && row.Date <= endDate; }});
+            if (filteredData.length === 0) {{ document.getElementById('message').innerHTML = '<div class="warning-message">⚠️ No data matches filters.</div>'; document.getElementById('charts').innerHTML = ''; return; }}
+            generateDailyCharts(filteredData);
+        }}
+        
+        function generateDailyCharts(filteredData) {{
+            const combinations = [...new Set(filteredData.map(r => `${{r['Style No']}}_${{r.PO}}_${{r.Colour}}`))]; const allDates = [];
+            const minDate = new Date(Math.min(...filteredData.map(r => r.Date))); const maxDate = new Date(Math.max(...filteredData.map(r => r.Date)));
+            for (let d = new Date(minDate); d <= maxDate; d.setDate(d.getDate() + 1)) {{ allDates.push(new Date(d)); }}
+            const aggregatedData = allDates.map(currentDate => {{
+                const result = {{ Date: currentDate }}; processes.forEach(process => {{ result[`Cumulative Planned ${{process}}`] = 0; result[`Cumulative Actual ${{process}}`] = 0; }});
+                combinations.forEach(combo => {{
+                    const [style, po, colour] = combo.split('_');
+                    const comboData = filteredData.filter(r => r['Style No'] === style && String(r.PO) === po && String(r.Colour) === colour && r.Date <= currentDate).sort((a, b) => a.Date - b.Date);
+                    if (comboData.length > 0) {{ const lastRow = comboData[comboData.length - 1]; processes.forEach(process => {{ result[`Cumulative Planned ${{process}}`] += lastRow[`Cumulative Planned ${{process}}`] || 0; result[`Cumulative Actual ${{process}}`] += lastRow[`Cumulative Actual ${{process}}`] || 0; }}); }}
+                }}); return result;
+            }});
+            const chartsDiv = document.getElementById('charts'); chartsDiv.innerHTML = '';
+            processes.forEach(process => {{
+                const chartDiv = document.createElement('div'); chartDiv.className = 'chart-container'; chartDiv.id = `chart-${{process}}`; chartsDiv.appendChild(chartDiv);
+                const dates = aggregatedData.map(d => d.Date); const plannedValues = aggregatedData.map(d => d[`Cumulative Planned ${{process}}`]); const actualValues = aggregatedData.map(d => d[`Cumulative Actual ${{process}}`]);
+                const trace1 = {{ x: dates, y: plannedValues, type: 'scatter', mode: 'lines+markers', name: 'Planned', line: {{ dash: 'dash', width: 3, color: '#FF6B6B' }}, marker: {{ size: 6 }} }};
+                const trace2 = {{ x: dates, y: actualValues, type: 'scatter', mode: 'lines+markers', name: 'Actual', line: {{ width: 3, color: '#4ECDC4' }}, marker: {{ size: 6 }} }};
+                const layout = {{ title: `${{process}} - Cumulative Planned vs Actual (Daily)`, xaxis: {{ title: 'Date' }}, yaxis: {{ title: 'Cumulative Quantity' }}, height: 450, hovermode: 'x unified' }};
+                Plotly.newPlot(`chart-${{process}}`, [trace1, trace2], layout);
+            }});
+        }}
+        
+        populateFilters(); updateCharts();
+    </script>
+</body>
+</html>"""
+    
+    return html_content
+
+# ========================================
 # CUSTOM CSS
 # ========================================
 
@@ -259,6 +411,22 @@ if file_to_use is not None:
             ],
             label_visibility="collapsed"
         )
+        
+        # Download button
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("### 📥 Download Report")
+        if st.sidebar.button("💾 Generate Offline HTML Report", use_container_width=True):
+            with st.spinner("🔄 Generating report..."):
+                html_content = generate_html_report(data)
+                st.sidebar.download_button(
+                    label="📥 Download HTML File",
+                    data=html_content,
+                    file_name=f"Production_Analytics_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html",
+                    mime="text/html",
+                    use_container_width=True
+                )
+                st.sidebar.success("✅ Report ready! Click above to download.")
+        st.sidebar.markdown("<small>💡 The HTML report works offline with interactive filters!</small>", unsafe_allow_html=True)
         
     except Exception as e:
         st.error(f"❌ Error loading file: {str(e)}")
