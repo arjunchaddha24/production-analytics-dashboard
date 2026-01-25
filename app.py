@@ -433,19 +433,62 @@ if data is not None and analytics_option is not None:
             st.warning("⚠️ No data matches the selected filters")
         else:
             if view_mode == "Daily":
-                # Group by date and get max cumulative values
-                cumulative_data = filtered_data.groupby('Date').agg({
-                    'Cumulative Planned Cutting': 'max',
-                    'Cumulative Actual Cutting': 'max',
-                    'Cumulative Planned Sewing': 'max',
-                    'Cumulative Actual Sewing': 'max',
-                    'Cumulative Planned Washing': 'max',
-                    'Cumulative Actual Washing': 'max',
-                    'Cumulative Planned Finishing': 'max',
-                    'Cumulative Actual Finishing': 'max',
-                    'Cumulative Planned Packing': 'max',
-                    'Cumulative Actual Packing': 'max'
-                }).reset_index()
+                # Get all unique Style/PO/Colour combinations
+                combinations = filtered_data[['Style', 'PO', 'Colour']].drop_duplicates()
+                
+                # Get all unique dates in the filtered range (sorted)
+                all_dates = pd.date_range(
+                    start=filtered_data['Date'].min(),
+                    end=filtered_data['Date'].max(),
+                    freq='D'
+                )
+                
+                # Initialize result list
+                result_data = []
+                
+                # For each date
+                for current_date in all_dates:
+                    date_totals = {
+                        'Date': current_date,
+                        'Cumulative Planned Cutting': 0,
+                        'Cumulative Actual Cutting': 0,
+                        'Cumulative Planned Sewing': 0,
+                        'Cumulative Actual Sewing': 0,
+                        'Cumulative Planned Washing': 0,
+                        'Cumulative Actual Washing': 0,
+                        'Cumulative Planned Finishing': 0,
+                        'Cumulative Actual Finishing': 0,
+                        'Cumulative Planned Packing': 0,
+                        'Cumulative Actual Packing': 0
+                    }
+                    
+                    # For each combination
+                    for _, combo in combinations.iterrows():
+                        style = combo['Style']
+                        po = combo['PO']
+                        colour = combo['Colour']
+                        
+                        # Get data for this combination up to current_date
+                        combo_data = filtered_data[
+                            (filtered_data['Style'] == style) &
+                            (filtered_data['PO'] == po) &
+                            (filtered_data['Colour'] == colour) &
+                            (filtered_data['Date'] <= current_date)
+                        ]
+                        
+                        # If data exists, get the last row (most recent date <= current_date)
+                        if len(combo_data) > 0:
+                            last_row = combo_data.sort_values('Date').iloc[-1]
+                            
+                            # Add cumulative values to totals
+                            for process in processes:
+                                date_totals[f'Cumulative Planned {process}'] += last_row[f'Cumulative Planned {process}']
+                                date_totals[f'Cumulative Actual {process}'] += last_row[f'Cumulative Actual {process}']
+                    
+                    result_data.append(date_totals)
+                
+                # Convert to dataframe
+                cumulative_data = pd.DataFrame(result_data)
                 
                 # Create line charts for each process
                 for process in processes:
@@ -487,26 +530,69 @@ if data is not None and analytics_option is not None:
                     st.plotly_chart(fig, use_container_width=True)
             
             elif view_mode == "Weekly":
-                # Add week column
-                filtered_data_copy = filtered_data.copy()
-                filtered_data_copy['Week'] = filtered_data_copy['Date'].dt.to_period('W')
+                # Get all unique Style/PO/Colour combinations
+                combinations = filtered_data[['Style', 'PO', 'Colour']].drop_duplicates()
                 
-                # Group by week and get max cumulative values
-                weekly_data = filtered_data_copy.groupby('Week').agg({
-                    'Cumulative Planned Cutting': 'max',
-                    'Cumulative Actual Cutting': 'max',
-                    'Cumulative Planned Sewing': 'max',
-                    'Cumulative Actual Sewing': 'max',
-                    'Cumulative Planned Washing': 'max',
-                    'Cumulative Actual Washing': 'max',
-                    'Cumulative Planned Finishing': 'max',
-                    'Cumulative Actual Finishing': 'max',
-                    'Cumulative Planned Packing': 'max',
-                    'Cumulative Actual Packing': 'max'
-                }).reset_index()
+                # Add week column to filtered data
+                filtered_data_with_week = filtered_data.copy()
+                filtered_data_with_week['Week'] = filtered_data_with_week['Date'].dt.to_period('W')
                 
-                # Convert period to string for display
-                weekly_data['Week'] = weekly_data['Week'].astype(str)
+                # Get all unique weeks
+                all_weeks = sorted(filtered_data_with_week['Week'].unique())
+                
+                # Initialize result list
+                result_data = []
+                
+                # For each week
+                for current_week in all_weeks:
+                    # Get the last date of this week from the data
+                    week_dates = filtered_data_with_week[filtered_data_with_week['Week'] == current_week]['Date']
+                    if len(week_dates) > 0:
+                        last_date_in_week = week_dates.max()
+                    else:
+                        continue
+                    
+                    week_totals = {
+                        'Week': str(current_week),
+                        'Cumulative Planned Cutting': 0,
+                        'Cumulative Actual Cutting': 0,
+                        'Cumulative Planned Sewing': 0,
+                        'Cumulative Actual Sewing': 0,
+                        'Cumulative Planned Washing': 0,
+                        'Cumulative Actual Washing': 0,
+                        'Cumulative Planned Finishing': 0,
+                        'Cumulative Actual Finishing': 0,
+                        'Cumulative Planned Packing': 0,
+                        'Cumulative Actual Packing': 0
+                    }
+                    
+                    # For each combination
+                    for _, combo in combinations.iterrows():
+                        style = combo['Style']
+                        po = combo['PO']
+                        colour = combo['Colour']
+                        
+                        # Get data for this combination up to last date of current week
+                        combo_data = filtered_data[
+                            (filtered_data['Style'] == style) &
+                            (filtered_data['PO'] == po) &
+                            (filtered_data['Colour'] == colour) &
+                            (filtered_data['Date'] <= last_date_in_week)
+                        ]
+                        
+                        # If data exists, get the last row
+                        if len(combo_data) > 0:
+                            last_row = combo_data.sort_values('Date').iloc[-1]
+                            
+                            # Add cumulative values to totals
+                            for process in processes:
+                                week_totals[f'Cumulative Planned {process}'] += last_row[f'Cumulative Planned {process}']
+                                week_totals[f'Cumulative Actual {process}'] += last_row[f'Cumulative Actual {process}']
+                    
+                    result_data.append(week_totals)
+                
+                # Convert to dataframe
+                weekly_data = pd.DataFrame(result_data)
                 
                 # Create bar charts for each process
                 for process in processes:
@@ -545,26 +631,69 @@ if data is not None and analytics_option is not None:
                     st.plotly_chart(fig, use_container_width=True)
             
             else:  # Monthly view
-                # Add month column
-                filtered_data_copy = filtered_data.copy()
-                filtered_data_copy['Month'] = filtered_data_copy['Date'].dt.to_period('M')
+                # Get all unique Style/PO/Colour combinations
+                combinations = filtered_data[['Style', 'PO', 'Colour']].drop_duplicates()
                 
-                # Group by month and get max cumulative values
-                monthly_data = filtered_data_copy.groupby('Month').agg({
-                    'Cumulative Planned Cutting': 'max',
-                    'Cumulative Actual Cutting': 'max',
-                    'Cumulative Planned Sewing': 'max',
-                    'Cumulative Actual Sewing': 'max',
-                    'Cumulative Planned Washing': 'max',
-                    'Cumulative Actual Washing': 'max',
-                    'Cumulative Planned Finishing': 'max',
-                    'Cumulative Actual Finishing': 'max',
-                    'Cumulative Planned Packing': 'max',
-                    'Cumulative Actual Packing': 'max'
-                }).reset_index()
+                # Add month column to filtered data
+                filtered_data_with_month = filtered_data.copy()
+                filtered_data_with_month['Month'] = filtered_data_with_month['Date'].dt.to_period('M')
                 
-                # Convert period to string for display
-                monthly_data['Month'] = monthly_data['Month'].astype(str)
+                # Get all unique months
+                all_months = sorted(filtered_data_with_month['Month'].unique())
+                
+                # Initialize result list
+                result_data = []
+                
+                # For each month
+                for current_month in all_months:
+                    # Get the last date of this month from the data
+                    month_dates = filtered_data_with_month[filtered_data_with_month['Month'] == current_month]['Date']
+                    if len(month_dates) > 0:
+                        last_date_in_month = month_dates.max()
+                    else:
+                        continue
+                    
+                    month_totals = {
+                        'Month': str(current_month),
+                        'Cumulative Planned Cutting': 0,
+                        'Cumulative Actual Cutting': 0,
+                        'Cumulative Planned Sewing': 0,
+                        'Cumulative Actual Sewing': 0,
+                        'Cumulative Planned Washing': 0,
+                        'Cumulative Actual Washing': 0,
+                        'Cumulative Planned Finishing': 0,
+                        'Cumulative Actual Finishing': 0,
+                        'Cumulative Planned Packing': 0,
+                        'Cumulative Actual Packing': 0
+                    }
+                    
+                    # For each combination
+                    for _, combo in combinations.iterrows():
+                        style = combo['Style']
+                        po = combo['PO']
+                        colour = combo['Colour']
+                        
+                        # Get data for this combination up to last date of current month
+                        combo_data = filtered_data[
+                            (filtered_data['Style'] == style) &
+                            (filtered_data['PO'] == po) &
+                            (filtered_data['Colour'] == colour) &
+                            (filtered_data['Date'] <= last_date_in_month)
+                        ]
+                        
+                        # If data exists, get the last row
+                        if len(combo_data) > 0:
+                            last_row = combo_data.sort_values('Date').iloc[-1]
+                            
+                            # Add cumulative values to totals
+                            for process in processes:
+                                month_totals[f'Cumulative Planned {process}'] += last_row[f'Cumulative Planned {process}']
+                                month_totals[f'Cumulative Actual {process}'] += last_row[f'Cumulative Actual {process}']
+                    
+                    result_data.append(month_totals)
+                
+                # Convert to dataframe
+                monthly_data = pd.DataFrame(result_data)
                 
                 # Create bar charts for each process
                 for process in processes:
