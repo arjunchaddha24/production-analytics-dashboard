@@ -842,73 +842,130 @@ if data is not None and analytics_option is not None:
     # ========================================
     elif analytics_option == "🎯 Production Completion Percentage":
         st.markdown('<div class="main-header">🎯 Production Completion Percentage</div>', unsafe_allow_html=True)
-        st.markdown('<div class="sub-header">Track completion percentage for each production process</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sub-header">Track completion percentage for each production process (Style/PO/Colour level)</div>', unsafe_allow_html=True)
         st.markdown("---")
         
-        # Filter by style
-        st.markdown("### Select Style")
-        selected_style = st.selectbox(
-            "Choose a style to view completion percentage",
-            options=sorted(data['Style'].unique()),
-            key="completion_style"
-        )
+        # Filters
+        st.markdown("### Filters")
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            selected_style = st.selectbox(
+                "Select Style",
+                options=sorted(data['Style'].unique()),
+                key="completion_style"
+            )
+        
+        # Get POs and Colours for selected style
+        style_data_for_filters = data[data['Style'] == selected_style]
+        
+        with col2:
+            selected_pos_completion = st.multiselect(
+                "PO",
+                options=sorted(style_data_for_filters['PO'].unique()),
+                default=sorted(style_data_for_filters['PO'].unique()),
+                key="completion_po"
+            )
+        
+        with col3:
+            selected_colours_completion = st.multiselect(
+                "Colour",
+                options=sorted(style_data_for_filters['Colour'].unique()),
+                default=sorted(style_data_for_filters['Colour'].unique()),
+                key="completion_colour"
+            )
         
         st.markdown("---")
         
-        # Filter data for selected style
-        style_data = data[data['Style'] == selected_style]
-        
-        if len(style_data) == 0:
-            st.warning("⚠️ No data found for the selected style")
+        # Check if any filters are selected
+        if len(selected_pos_completion) == 0 or len(selected_colours_completion) == 0:
+            st.warning("⚠️ Please select at least one PO and one Colour")
         else:
-            # Get the last row (most recent date) to get cumulative values
-            last_row = style_data.sort_values('Date').iloc[-1]
+            # Initialize accumulators for totals
+            total_planned = {process: 0 for process in processes}
+            total_actual = {process: 0 for process in processes}
+            latest_date = None
+            combinations_found = 0
             
-            # Calculate completion percentages
-            progress_data = []
-            for process in processes:
-                planned = last_row[f'Cumulative Planned {process}']
-                actual = last_row[f'Cumulative Actual {process}']
+            # Process each Style/PO/Colour combination
+            for po in selected_pos_completion:
+                for colour in selected_colours_completion:
+                    # Filter for this specific combination
+                    combo_data = data[
+                        (data['Style'] == selected_style) &
+                        (data['PO'] == po) &
+                        (data['Colour'] == colour)
+                    ]
+                    
+                    # Check if this combination has data
+                    if len(combo_data) > 0:
+                        combinations_found += 1
+                        
+                        # Get the last row (most recent date) for this combination
+                        last_row = combo_data.sort_values('Date').iloc[-1]
+                        
+                        # Track the latest date across all combinations
+                        if latest_date is None or last_row['Date'] > latest_date:
+                            latest_date = last_row['Date']
+                        
+                        # Add cumulative values from this combination to totals
+                        for process in processes:
+                            total_planned[process] += last_row[f'Cumulative Planned {process}']
+                            total_actual[process] += last_row[f'Cumulative Actual {process}']
+            
+            # Check if any combinations were found
+            if combinations_found == 0:
+                st.warning("⚠️ No data found for the selected Style/PO/Colour combinations")
+            else:
+                # Calculate completion percentages from totals
+                progress_data = []
+                for process in processes:
+                    planned = total_planned[process]
+                    actual = total_actual[process]
+                    
+                    if planned > 0:
+                        percentage = (actual / planned) * 100
+                    else:
+                        percentage = 0
+                    
+                    remaining = planned - actual
+                    
+                    progress_data.append({
+                        'Process': process,
+                        'Planned': int(planned),
+                        'Actual': int(actual),
+                        'Remaining': int(remaining),
+                        'Percentage': round(percentage, 1)
+                    })
                 
-                if planned > 0:
-                    percentage = (actual / planned) * 100
+                progress_df = pd.DataFrame(progress_data)
+                
+                # Display as a styled table
+                st.markdown(f"### Progress Summary for Style: **{selected_style}**")
+                if len(selected_pos_completion) == 1 and len(selected_colours_completion) == 1:
+                    st.markdown(f"**PO:** {selected_pos_completion[0]} | **Colour:** {selected_colours_completion[0]}")
                 else:
-                    percentage = 0
+                    st.markdown(f"**POs:** {', '.join(selected_pos_completion)} | **Colours:** {', '.join(selected_colours_completion)}")
+                st.markdown(f"*As of {latest_date.strftime('%d %B %Y')}*")
+                st.markdown("")
                 
-                remaining = planned - actual
+                # Create a more detailed table with styling
+                styled_df = progress_df[['Process', 'Actual', 'Planned', 'Remaining', 'Percentage']].copy()
+                styled_df['Percentage'] = styled_df['Percentage'].apply(lambda x: f"{x}%")
                 
-                progress_data.append({
-                    'Process': process,
-                    'Planned': int(planned),
-                    'Actual': int(actual),
-                    'Remaining': int(remaining),
-                    'Percentage': round(percentage, 1)
-                })
-        
-        progress_df = pd.DataFrame(progress_data)
-        
-        # Display as a styled table
-        st.markdown(f"### Progress Summary for Style: **{selected_style}**")
-        st.markdown(f"*As of {last_row['Date'].strftime('%d %B %Y')}*")
-        st.markdown("")
-        
-        # Create a more detailed table with styling
-        styled_df = progress_df[['Process', 'Actual', 'Planned', 'Remaining', 'Percentage']].copy()
-        styled_df['Percentage'] = styled_df['Percentage'].apply(lambda x: f"{x}%")
-        
-        # Display the table with custom styling
-        st.dataframe(
-            styled_df,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "Process": st.column_config.TextColumn("Process", width="medium"),
-                "Actual": st.column_config.NumberColumn("Actual", width="small", format="%d"),
-                "Planned": st.column_config.NumberColumn("Planned", width="small", format="%d"),
-                "Remaining": st.column_config.NumberColumn("Remaining", width="small", format="%d"),
-                "Percentage": st.column_config.TextColumn("Completion %", width="small")
-            }
-        )
+                # Display the table with custom styling
+                st.dataframe(
+                    styled_df,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "Process": st.column_config.TextColumn("Process", width="medium"),
+                        "Actual": st.column_config.NumberColumn("Actual", width="small", format="%d"),
+                        "Planned": st.column_config.NumberColumn("Planned", width="small", format="%d"),
+                        "Remaining": st.column_config.NumberColumn("Remaining", width="small", format="%d"),
+                        "Percentage": st.column_config.TextColumn("Completion %", width="small")
+                    }
+                )
     
     # ========================================
     # OPTION 5: Production Days Analysis
