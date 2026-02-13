@@ -16,6 +16,35 @@ st.set_page_config(
 )
 
 # ========================================
+# PASSWORD PROTECTION
+# ========================================
+
+def check_password():
+    """Returns True if the user has entered the correct password."""
+    
+    if "authenticated" not in st.session_state:
+        st.session_state.authenticated = False
+    
+    if st.session_state.authenticated:
+        return True
+    
+    st.markdown("### 🔒 Login Required")
+    password = st.text_input("Enter password to access the dashboard:", type="password")
+    
+    if password:
+        if password == "decor2025":   # ← CHANGE THIS TO YOUR PASSWORD
+            st.session_state.authenticated = True
+            st.rerun()
+        else:
+            st.error("❌ Incorrect password. Please try again.")
+    
+    return False
+
+# Check password before showing anything else
+if not check_password():
+    st.stop()
+
+# ========================================
 # FILE PERSISTENCE SETUP
 # ========================================
 
