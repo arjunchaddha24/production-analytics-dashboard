@@ -96,6 +96,49 @@ def clear_saved_file():
         return False
 
 # ========================================
+# HELPER FUNCTION: Order Quantity Table
+# ========================================
+
+def show_order_quantity_table(filtered_data):
+    """
+    Displays an Order Quantity summary table above the charts.
+    Shows one row per unique (Style, PO, Colour) combination found in filtered_data,
+    with the Order Quantity for that combination.
+    
+    Args:
+        filtered_data: pandas DataFrame already filtered by the user's selections.
+    """
+    # Check if 'Order Quantity' column exists in the data
+    if 'Order Quantity' not in filtered_data.columns:
+        return
+    
+    # Get unique (Style, PO, Colour) combinations and their Order Quantity.
+    # Since Order Quantity is the same for all dates for a given combo,
+    # we just take the first value for each group.
+    oq_table = filtered_data.groupby(['Style', 'PO', 'Colour'], as_index=False)['Order Quantity'].first()
+    
+    # Sort for consistent display
+    oq_table = oq_table.sort_values(['Style', 'PO', 'Colour']).reset_index(drop=True)
+    
+    # Only show if there is data
+    if len(oq_table) == 0:
+        return
+    
+    st.markdown("### 📋 Order Quantity Summary")
+    st.dataframe(
+        oq_table,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Style": st.column_config.TextColumn("Style", width="medium"),
+            "PO": st.column_config.TextColumn("PO", width="medium"),
+            "Colour": st.column_config.TextColumn("Colour", width="medium"),
+            "Order Quantity": st.column_config.NumberColumn("Order Quantity", width="medium", format="%d")
+        }
+    )
+    st.markdown("---")
+
+# ========================================
 # CUSTOM CSS
 # ========================================
 
@@ -242,6 +285,10 @@ if file_to_use is not None:
         # Sort by date
         data = data.sort_values('Date')
         
+        # Ensure Order Quantity column exists (for backward compatibility with old files)
+        if 'Order Quantity' not in data.columns:
+            data['Order Quantity'] = 0
+        
         st.markdown("---")
         
         # Sidebar for navigation
@@ -285,7 +332,7 @@ if data is not None and analytics_option is not None:
         
         # Filters
         st.markdown("### Filters")
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3, col4, col5 = st.columns(5)
         
         with col1:
             selected_styles = st.multiselect(
@@ -314,6 +361,14 @@ if data is not None and analytics_option is not None:
                 value=(data['Date'].min(), data['Date'].max())
             )
         
+        with col5:
+            view_mode_actual = st.radio(
+                "View Mode",
+                options=["Daily", "Weekly", "Monthly"],
+                horizontal=True,
+                key="actual_view_mode"
+            )
+        
         st.markdown("---")
         
         # Filter data
@@ -328,43 +383,139 @@ if data is not None and analytics_option is not None:
         if len(filtered_data) == 0:
             st.warning("⚠️ No data matches the selected filters")
         else:
-            # Group by date and sum actual quantities
-            daily_production = filtered_data.groupby('Date').agg({
-                'Actual Cutting': 'sum',
-                'Actual Sewing': 'sum',
-                'Actual Washing': 'sum',
-                'Actual Finishing': 'sum',
-                'Actual Packing': 'sum'
-            }).reset_index()
+            # Show Order Quantity table above the charts
+            show_order_quantity_table(filtered_data)
             
-            # Create bar chart
-            fig = go.Figure()
-            
-            for i, process in enumerate(processes):
-                fig.add_trace(go.Bar(
-                    x=daily_production['Date'],
-                    y=daily_production[f'Actual {process}'],
-                    name=process,
-                    marker_color=colors[i]
-                ))
-            
-            fig.update_layout(
-                title="Daily Actual Production by Process",
-                xaxis_title="Date",
-                yaxis_title="Quantity",
-                barmode='group',
-                height=600,
-                hovermode='x unified',
-                legend=dict(
-                    orientation="h",
-                    yanchor="bottom",
-                    y=1.02,
-                    xanchor="right",
-                    x=1
+            if view_mode_actual == "Daily":
+                # Group by date and sum actual quantities
+                daily_production = filtered_data.groupby('Date').agg({
+                    'Actual Cutting': 'sum',
+                    'Actual Sewing': 'sum',
+                    'Actual Washing': 'sum',
+                    'Actual Finishing': 'sum',
+                    'Actual Packing': 'sum'
+                }).reset_index()
+                
+                # Create bar chart
+                fig = go.Figure()
+                
+                for i, process in enumerate(processes):
+                    fig.add_trace(go.Bar(
+                        x=daily_production['Date'],
+                        y=daily_production[f'Actual {process}'],
+                        name=process,
+                        marker_color=colors[i]
+                    ))
+                
+                fig.update_layout(
+                    title="Daily Actual Production by Process",
+                    xaxis_title="Date",
+                    yaxis_title="Quantity",
+                    barmode='group',
+                    height=600,
+                    hovermode='x unified',
+                    legend=dict(
+                        orientation="h",
+                        yanchor="bottom",
+                        y=1.02,
+                        xanchor="right",
+                        x=1
+                    )
                 )
-            )
+                
+                st.plotly_chart(fig, use_container_width=True)
             
-            st.plotly_chart(fig, use_container_width=True)
+            elif view_mode_actual == "Weekly":
+                # Add week column
+                filtered_data_copy = filtered_data.copy()
+                filtered_data_copy['Week'] = filtered_data_copy['Date'].dt.to_period('W')
+                
+                # Group by week and sum actual quantities
+                weekly_production = filtered_data_copy.groupby('Week').agg({
+                    'Actual Cutting': 'sum',
+                    'Actual Sewing': 'sum',
+                    'Actual Washing': 'sum',
+                    'Actual Finishing': 'sum',
+                    'Actual Packing': 'sum'
+                }).reset_index()
+                
+                # Convert period to string for display
+                weekly_production['Week'] = weekly_production['Week'].astype(str)
+                
+                # Create bar chart
+                fig = go.Figure()
+                
+                for i, process in enumerate(processes):
+                    fig.add_trace(go.Bar(
+                        x=weekly_production['Week'],
+                        y=weekly_production[f'Actual {process}'],
+                        name=process,
+                        marker_color=colors[i]
+                    ))
+                
+                fig.update_layout(
+                    title="Weekly Actual Production by Process",
+                    xaxis_title="Week",
+                    yaxis_title="Quantity",
+                    barmode='group',
+                    height=600,
+                    hovermode='x unified',
+                    legend=dict(
+                        orientation="h",
+                        yanchor="bottom",
+                        y=1.02,
+                        xanchor="right",
+                        x=1
+                    )
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+            
+            else:  # Monthly view
+                # Add month column
+                filtered_data_copy = filtered_data.copy()
+                filtered_data_copy['Month'] = filtered_data_copy['Date'].dt.to_period('M')
+                
+                # Group by month and sum actual quantities
+                monthly_production = filtered_data_copy.groupby('Month').agg({
+                    'Actual Cutting': 'sum',
+                    'Actual Sewing': 'sum',
+                    'Actual Washing': 'sum',
+                    'Actual Finishing': 'sum',
+                    'Actual Packing': 'sum'
+                }).reset_index()
+                
+                # Convert period to string for display
+                monthly_production['Month'] = monthly_production['Month'].astype(str)
+                
+                # Create bar chart
+                fig = go.Figure()
+                
+                for i, process in enumerate(processes):
+                    fig.add_trace(go.Bar(
+                        x=monthly_production['Month'],
+                        y=monthly_production[f'Actual {process}'],
+                        name=process,
+                        marker_color=colors[i]
+                    ))
+                
+                fig.update_layout(
+                    title="Monthly Actual Production by Process",
+                    xaxis_title="Month",
+                    yaxis_title="Quantity",
+                    barmode='group',
+                    height=600,
+                    hovermode='x unified',
+                    legend=dict(
+                        orientation="h",
+                        yanchor="bottom",
+                        y=1.02,
+                        xanchor="right",
+                        x=1
+                    )
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
     
     # ========================================
     # OPTION 2: Cumulative Planned vs Actual
@@ -432,6 +583,9 @@ if data is not None and analytics_option is not None:
         if len(filtered_data) == 0:
             st.warning("⚠️ No data matches the selected filters")
         else:
+            # Show Order Quantity table above the charts
+            show_order_quantity_table(filtered_data)
+            
             if view_mode == "Daily":
                 # Get all unique Style/PO/Colour combinations
                 combinations = filtered_data[['Style', 'PO', 'Colour']].drop_duplicates()
@@ -796,6 +950,9 @@ if data is not None and analytics_option is not None:
         if len(filtered_data) == 0:
             st.warning("⚠️ No data matches the selected filters")
         else:
+            # Show Order Quantity table above the charts
+            show_order_quantity_table(filtered_data)
+            
             if view_mode_daily == "Daily":
                 # Group by date and sum quantities
                 daily_comparison = filtered_data.groupby('Date').agg({
@@ -1251,9 +1408,9 @@ else:
     # Show available analytics
     st.markdown("### Available Analytics:")
     st.markdown("""
-    - **📊 Daily Actual Production Tracking** - Bar chart showing actual production by process
-    - **📈 Cumulative Planned vs Actual** - Line/Bar charts comparing cumulative targets vs reality (Daily/Monthly views)
-    - **📉 Daily Planned vs Actual** - Line charts for day-to-day comparison
+    - **📊 Daily Actual Production Tracking** - Bar chart showing actual production by process (Daily/Weekly/Monthly)
+    - **📈 Cumulative Planned vs Actual** - Line/Bar charts comparing cumulative targets vs reality (Daily/Weekly/Monthly views)
+    - **📉 Daily Planned vs Actual** - Line charts for day-to-day comparison (Daily/Weekly/Monthly)
     - **🎯 Production Completion Percentage** - Table showing completion percentage for each process
     - **📅 Production Days Analysis** - Track production days vs non-production days per month
     """)
@@ -1262,6 +1419,6 @@ else:
 st.markdown("---")
 st.markdown("""
 <div style='text-align: center; color: #666; font-size: 0.9rem;'>
-    <p>Production Analytics Dashboard v2.2 (with File Persistence)</p>
+    <p>Production Analytics Dashboard v2.3 (with Order Quantity & Enhanced Views)</p>
 </div>
 """, unsafe_allow_html=True)
